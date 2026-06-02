@@ -11,11 +11,14 @@ use App\Http\Controllers\SimpananController;
 use App\Http\Controllers\ProdukController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\Api\ReportController;
+use App\Http\Controllers\CabangController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 // 1. ROUTE PUBLIC
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/anggota/register', [AnggotaController::class, 'register']);
+Route::get('/cabangs', [CabangController::class, 'index']);
 
 // 2. ROUTE PROTECTED
 Route::middleware('auth:sanctum')->group(function () {
@@ -29,6 +32,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // --- FITUR ANGGOTA (SELF-SERVICE) ---
     Route::middleware('role:Anggota')->group(function () {
+        Route::get('/anggota/me', [AnggotaController::class, 'me']);
         Route::post('/angsurans', [AngsuranController::class, 'store']); // Ajukan Bayar
         Route::post('/pinjamans', [PinjamanController::class, 'store']); // Ajukan Pinjam
         Route::get('/my-history', [AngsuranController::class, 'history']); 
@@ -54,7 +58,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // --- MODUL APPROVAL (PENGURUS & ADMIN) ---
     Route::middleware('role:Pengurus,Admin')->group(function () {
-        Route::apiResource('anggota', AnggotaController::class);
+        Route::get('/anggota', [AnggotaController::class, 'index']);
+        Route::post('/anggota', [AnggotaController::class, 'store']);
+        Route::get('/anggota/{id_anggota}', [AnggotaController::class, 'show']);
+        Route::put('/anggota/{id_anggota}', [AnggotaController::class, 'update']);
+        Route::patch('/anggota/{id_anggota}', [AnggotaController::class, 'update']);
+        Route::delete('/anggota/{id_anggota}', [AnggotaController::class, 'destroy']);
         Route::patch('/angsurans/{id_angsuran}/verify', [AngsuranController::class, 'verify']);
         Route::patch('/pinjamans/{id_pinjaman}/approve', [PinjamanController::class, 'approve']);
         Route::patch('/usulan-stoks/{id_usulan}/approve', [UsulanStokController::class, 'approveUsulan']);

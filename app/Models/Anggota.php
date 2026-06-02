@@ -33,7 +33,22 @@ class Anggota extends Model
     {
         return $this->belongsTo(Account::class, 'id_account', 'id_account');
     }
-
+    public function admin()
+    {
+        return $this->hasOne(Admin::class, 'id_account', 'id_account');
+    }
+    public function pengurus()
+    {
+        return $this->hasOne(Pengurus::class, 'id_account', 'id_account');
+    }
+    public function kasir()
+    {
+        return $this->hasOne(Kasir::class, 'id_account', 'id_account');
+    }
+    public function gudang()
+    {
+        return $this->hasOne(Gudang::class, 'id_account', 'id_account');
+    }
     public function cabang()
     {
         return $this->belongsTo(Cabang::class, 'id_cabang', 'id_cabang');

@@ -3,118 +3,185 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ActivateAnggotaRequest;
+use App\Http\Requests\RegisterAnggotaRequest;
+use App\Http\Requests\UpdateAnggotaRequest;
+use App\Http\Resources\AnggotaResource;
+use App\Models\Account;
 use App\Models\Anggota;
 use App\Models\Simpanan;
+use App\Traits\ApiResponse;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Validator;
 
 class AnggotaController extends Controller
 {
-    // Ambil semua anggota + data akun & cabang
-    public function index()
+    use ApiResponse;
+
+    /**
+     * Pendaftaran calon anggota (public).
+     * Membuat akun login + profil anggota status Calon.
+     */
+    public function register(RegisterAnggotaRequest $request): JsonResponse
     {
-        $anggota = Anggota::with(['account', 'cabang'])->get();
-        return response()->json([
-            'success' => true,
-            'message' => 'Daftar Anggota Koperasi',
-            'data'    => $anggota
-        ]);
+        $validated = $request->validated();
+
+        $result = DB::transaction(function () use ($validated) {
+            $account = Account::create([
+                'username' => $validated['username'],
+                'password' => $validated['password'],
+                'role' => 'Anggota',
+            ]);
+
+            $anggota = Anggota::create([
+                'id_account' => $account->id_account,
+                'nama_anggota' => $validated['nama_anggota'],
+                'alamat' => $validated['alamat'],
+                'no_hp' => $validated['no_hp'],
+                'email' => $validated['email'],
+                'id_cabang' => $validated['id_cabang'],
+                'tanggal_daftar' => now()->toDateString(),
+                'status' => 'Calon',
+            ]);
+
+            return $anggota->load(['account', 'cabang']);
+        });
+
+        return $this->successResponse(
+            'Pendaftaran berhasil. Menunggu aktivasi admin.',
+            new AnggotaResource($result),
+            201
+        );
     }
 
-    // Simpan anggota baru
-    public function store(Request $request)
+    /**
+     * Profil anggota yang sedang login.
+     */
+    public function me(Request $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'id_account'    => 'required|exists:accounts,id_account',
-            'nama_anggota'  => 'required|string|max:255',
-            'alamat'        => 'required',
-            'no_hp'         => 'required|max:15',
-            'email'         => 'required|email|unique:anggotas,email',
-            'id_cabang'     => 'required|exists:cabangs,id_cabang',
-            'status'        => 'sometimes|in:Calon,Aktif',
-        ]);
+        $anggota = $request->user()?->anggota;
 
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors'  => $validator->errors()
-            ], 422);
+        if (! $anggota) {
+            return $this->errorResponse('Profil anggota tidak ditemukan.', null, 404);
         }
 
-        // Karena timestamps = false, pastikan tanggal_daftar terisi manual
-        $data = $request->all();
-        $data['tanggal_daftar'] = $request->tanggal_daftar ?? now()->format('Y-m-d');
-        $data['status'] = $data['status'] ?? 'Calon';
+        $anggota->load(['account', 'cabang', 'simpanans', 'pinjamans']);
 
-        $anggota = Anggota::create($data);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Anggota berhasil ditambahkan',
-            'data'    => $anggota
-        ], 201);
+        return $this->successResponse('Profil anggota berhasil diambil.', new AnggotaResource($anggota));
     }
 
-    // Lihat detail anggota + history simpanan & pinjamannya
-    public function show($id)
+    /**
+     * Daftar anggota (Pengurus/Admin).
+     * Query: status, id_cabang, q (cari nama/email/nomor)
+     */
+    public function index(Request $request): JsonResponse
     {
-        // Pake findOrFail biar otomatis 404 kalau ga ada
+        $query = Anggota::query()->with(['account', 'cabang']);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->string('status'));
+        }
+
+        if ($request->filled('id_cabang')) {
+            $query->where('id_cabang', (int) $request->query('id_cabang'));
+        }
+
+        if ($request->filled('q')) {
+            $term = '%'.$request->string('q').'%';
+            $query->where(function ($q) use ($term) {
+                $q->where('nama_anggota', 'like', $term)
+                    ->orWhere('email', 'like', $term)
+                    ->orWhere('nomor_anggota', 'like', $term);
+            });
+        }
+
+        $anggota = $query->orderByDesc('id_anggota')->get();
+
+        return $this->successResponse(
+            'Daftar anggota berhasil diambil.',
+            AnggotaResource::collection($anggota)
+        );
+    }
+
+    /**
+     * Detail anggota + riwayat simpanan, pinjaman, transaksi POS.
+     */
+    public function show(int $id_anggota): JsonResponse
+    {
         $anggota = Anggota::with(['account', 'cabang', 'simpanans', 'pinjamans', 'transaksiPos'])
-                          ->where('id_anggota', $id)
-                          ->first();
+            ->find($id_anggota);
 
-        if (!$anggota) {
-            return response()->json(['success' => false, 'message' => 'Anggota tidak ditemukan'], 404);
+        if (! $anggota) {
+            return $this->errorResponse('Anggota tidak ditemukan.', null, 404);
         }
 
-        return response()->json([
-            'success' => true,
-            'data'    => $anggota
-        ]);
+        return $this->successResponse('Detail anggota berhasil diambil.', new AnggotaResource($anggota));
     }
 
-    // Update Data Anggota
-    public function update(Request $request, $id)
+    /**
+     * Admin/Pengurus: tambah anggota (sama seperti register).
+     */
+    public function store(RegisterAnggotaRequest $request): JsonResponse
     {
-        $anggota = Anggota::where('id_anggota', $id)->first();
-        if (!$anggota) return response()->json(['message' => 'Not Found'], 404);
+        return $this->register($request);
+    }
 
-        $anggota->update($request->all());
+    public function update(UpdateAnggotaRequest $request, int $id_anggota): JsonResponse
+    {
+        $anggota = Anggota::find($id_anggota);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Data anggota berhasil diupdate',
-            'data'    => $anggota
-        ]);
+        if (! $anggota) {
+            return $this->errorResponse('Anggota tidak ditemukan.', null, 404);
+        }
+
+        $anggota->update($request->validated());
+        $anggota->load(['account', 'cabang']);
+
+        return $this->successResponse('Data anggota berhasil diperbarui.', new AnggotaResource($anggota));
+    }
+
+    public function destroy(int $id_anggota): JsonResponse
+    {
+        $anggota = Anggota::with('account')->find($id_anggota);
+
+        if (! $anggota) {
+            return $this->errorResponse('Anggota tidak ditemukan.', null, 404);
+        }
+
+        DB::transaction(function () use ($anggota) {
+            $account = $anggota->account;
+            $anggota->delete();
+
+            if ($account) {
+                $account->delete();
+            }
+        });
+
+        return $this->successResponse('Anggota berhasil dihapus.', null);
     }
 
     /**
      * Aktivasi calon anggota (Admin only).
-     * - status: Calon -> Aktif
-     * - generate nomor_anggota
-     * - trigger simpanan pokok pertama
      */
-    public function activate(ActivateAnggotaRequest $request, int $id_anggota)
+    public function activate(ActivateAnggotaRequest $request, int $id_anggota): JsonResponse
     {
         $anggota = Anggota::with(['account', 'cabang'])->find($id_anggota);
+
         if (! $anggota) {
-            return response()->json(['success' => false, 'message' => 'Anggota tidak ditemukan'], 404);
+            return $this->errorResponse('Anggota tidak ditemukan.', null, 404);
         }
 
         if ($anggota->status !== 'Calon') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Hanya anggota berstatus Calon yang bisa diaktifkan.',
-                'data' => $anggota,
-            ], 422);
+            return $this->errorResponse(
+                'Hanya anggota berstatus Calon yang bisa diaktifkan.',
+                new AnggotaResource($anggota),
+                422
+            );
         }
 
-        return DB::transaction(function () use ($request, $anggota) {
-            // Format nomor anggota: AGT-{ID_CABANG}-{ID_ANGGOTA_PAD}
+        $result = DB::transaction(function () use ($request, $anggota) {
             $nomor = 'AGT-'.(int) $anggota->id_cabang.'-'.str_pad((string) $anggota->id_anggota, 6, '0', STR_PAD_LEFT);
 
-            // Safety: kalau sudah pernah kebentuk (harusnya belum), pastiin unique
             if (Anggota::where('nomor_anggota', $nomor)->where('id_anggota', '!=', $anggota->id_anggota)->exists()) {
                 $nomor = $nomor.'-'.now()->format('His');
             }
@@ -124,7 +191,6 @@ class AnggotaController extends Controller
             $anggota->tanggal_daftar = $anggota->tanggal_daftar ?? now()->toDateString();
             $anggota->save();
 
-            // Trigger simpanan pokok pertama
             $validated = $request->validated();
             $simpanan = Simpanan::create([
                 'id_anggota' => $anggota->id_anggota,
@@ -133,14 +199,15 @@ class AnggotaController extends Controller
                 'tanggal' => $validated['tanggal'] ?? now()->toDateString(),
             ]);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Anggota berhasil diaktifkan dan simpanan pokok tercatat.',
-                'data' => [
-                    'anggota' => $anggota->fresh(),
-                    'simpanan_pokok' => $simpanan,
-                ],
-            ], 200);
+            return [
+                'anggota' => $anggota->fresh(['account', 'cabang']),
+                'simpanan_pokok' => $simpanan,
+            ];
         });
+
+        return $this->successResponse('Anggota berhasil diaktifkan dan simpanan pokok tercatat.', [
+            'anggota' => new AnggotaResource($result['anggota']),
+            'simpanan_pokok' => $result['simpanan_pokok'],
+        ]);
     }
 }
