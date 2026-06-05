@@ -13,42 +13,13 @@ use App\Models\Produk;
 use App\Models\Simpanan;
 use App\Models\TransaksiPos;
 use App\Traits\ApiResponse;
+use App\Traits\ResolvesCabangScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ReportController extends Controller
 {
-    use ApiResponse;
-
-    private function resolveCabangScope(Request $request): ?int
-    {
-        $user = $request->user();
-        if (! $user) {
-            return null;
-        }
-
-        if ($user->role === 'Admin') {
-            return null; // no scope
-        }
-
-        if ($user->role === 'Pengurus') {
-            return $user->pengurus?->id_cabang;
-        }
-
-        if ($user->role === 'Kasir') {
-            return $user->kasir?->id_cabang;
-        }
-
-        if ($user->role === 'Gudang') {
-            return $user->gudang?->id_cabang;
-        }
-
-        if ($user->role === 'Anggota') {
-            return $user->anggota?->id_cabang;
-        }
-
-        return null;
-    }
+    use ApiResponse, ResolvesCabangScope;
 
     /**
      * Laporan penjualan dengan filter kasir dan bulan/tahun.
@@ -60,28 +31,46 @@ class ReportController extends Controller
     public function sales(Request $request): JsonResponse
     {
         try {
+            $period = $request->query('period', 'monthly');
             $month = (int) ($request->query('month') ?? now()->month);
             $year = (int) ($request->query('year') ?? now()->year);
+            $date = $request->query('date');
             $idKasir = $request->query('id_kasir');
             $cabangScope = $this->resolveCabangScope($request);
 
-            $query = TransaksiPos::query()->with(['kasir.cabang']);
-            $query->whereMonth('tanggal_jam', $month)->whereYear('tanggal_jam', $year);
+            $query = TransaksiPos::query()->with(['kasir.cabang', 'detailTransaksi.produk']);
+
+            if ($period === 'daily' && $date) {
+                $query->whereDate('tanggal_jam', $date);
+            } elseif ($period === 'yearly') {
+                $query->whereYear('tanggal_jam', $year);
+            } else {
+                $query->whereMonth('tanggal_jam', $month)->whereYear('tanggal_jam', $year);
+            }
 
             if ($idKasir !== null) {
                 $query->where('id_kasir', (int) $idKasir);
             }
 
             if ($cabangScope !== null) {
-                $query->whereHas('kasir', function ($q) use ($cabangScope) {
-                    $q->where('id_cabang', $cabangScope);
-                });
+                $query->whereHas('kasir', fn ($q) => $q->where('id_cabang', $cabangScope));
             }
 
             $data = $query->orderByDesc('tanggal_jam')->get();
 
+            $totalPenjualan = (float) $data->sum('total_bayar');
+            $totalHpp = 0.0;
+            foreach ($data as $trx) {
+                foreach ($trx->detailTransaksi as $detail) {
+                    $hargaBeli = (float) ($detail->produk?->harga_beli ?? 0);
+                    $totalHpp += $hargaBeli * (int) $detail->jumlah;
+                }
+            }
+
             return $this->successResponse('Laporan penjualan berhasil diambil.', [
                 'filters' => [
+                    'period' => $period,
+                    'date' => $date,
                     'month' => $month,
                     'year' => $year,
                     'id_kasir' => $idKasir ? (int) $idKasir : null,
@@ -89,12 +78,77 @@ class ReportController extends Controller
                 ],
                 'summary' => [
                     'total_transaksi' => $data->count(),
-                    'total_penjualan' => (float) $data->sum('total_bayar'),
+                    'total_penjualan' => $totalPenjualan,
+                    'total_hpp' => $totalHpp,
+                    'keuntungan' => $totalPenjualan - $totalHpp,
                 ],
                 'data' => $data,
             ]);
         } catch (\Throwable $e) {
             return $this->errorResponse('Gagal memuat laporan penjualan.', $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Laporan pinjaman: status pembayaran, tunggakan, akumulasi biaya operasional.
+     */
+    public function pinjaman(Request $request): JsonResponse
+    {
+        try {
+            $status = $request->query('status');
+            $cabangScope = $this->resolveCabangScope($request);
+
+            $query = Pinjaman::with(['anggota.cabang', 'pengurusAcc', 'angsurans']);
+            if ($status) {
+                $query->where('status', $status);
+            }
+            if ($cabangScope !== null) {
+                $query->whereHas('anggota', fn ($q) => $q->where('id_cabang', $cabangScope));
+            }
+
+            $pinjamans = $query->orderByDesc('tanggal_pengajuan')->get();
+
+            $rows = $pinjamans->map(function ($p) {
+                $lastVerified = Angsuran::where('id_pinjaman', $p->id_pinjaman)
+                    ->where('status', 'Verified')
+                    ->orderByDesc('id_angsuran')
+                    ->first();
+
+                $sisa = $lastVerified ? (float) $lastVerified->sisa_pinjaman : (float) $p->jumlah_pinjaman;
+                $feeTerkumpul = (float) Angsuran::where('id_pinjaman', $p->id_pinjaman)
+                    ->where('status', 'Verified')
+                    ->sum('fee_bayar');
+
+                return [
+                    'id_pinjaman' => $p->id_pinjaman,
+                    'anggota' => $p->anggota?->only(['id_anggota', 'nomor_anggota', 'nama_anggota', 'id_cabang']),
+                    'jumlah_pinjaman' => (float) $p->jumlah_pinjaman,
+                    'biaya_operasional' => (float) $p->biaya_operasional,
+                    'fee_terkumpul' => $feeTerkumpul,
+                    'tenor' => $p->tenor,
+                    'status' => $p->status,
+                    'sisa_pinjaman' => $sisa,
+                    'tunggakan' => $p->status === 'Approved' && $sisa > 0,
+                    'lunas' => $p->status === 'Approved' && $sisa <= 0,
+                ];
+            })->values();
+
+            return $this->successResponse('Laporan pinjaman berhasil diambil.', [
+                'filters' => [
+                    'status' => $status,
+                    'id_cabang' => $cabangScope,
+                ],
+                'summary' => [
+                    'total_pinjaman' => $rows->count(),
+                    'total_pokok' => (float) $rows->sum('jumlah_pinjaman'),
+                    'total_biaya_operasional' => (float) $rows->sum('biaya_operasional'),
+                    'total_fee_terkumpul' => (float) $rows->sum('fee_terkumpul'),
+                    'jumlah_tunggakan' => $rows->where('tunggakan', true)->count(),
+                ],
+                'data' => $rows,
+            ]);
+        } catch (\Throwable $e) {
+            return $this->errorResponse('Gagal memuat laporan pinjaman.', $e->getMessage(), 500);
         }
     }
 
@@ -466,6 +520,7 @@ class ReportController extends Controller
                 'summary' => [
                     'total' => $data->count(),
                     'aktif' => $data->where('status', 'Aktif')->count(),
+                    'non_aktif' => $data->where('status', 'Non-Aktif')->count(),
                     'calon' => $data->where('status', 'Calon')->count(),
                 ],
                 'data' => $data,
@@ -531,12 +586,19 @@ class ReportController extends Controller
     public function persediaan(Request $request): JsonResponse
     {
         try {
-            $threshold = (int) ($request->query('threshold') ?? 100);
+            $threshold = (int) ($request->query('threshold') ?? config('koperasi.stok_warning_threshold', 100));
             if ($threshold <= 0) {
                 $threshold = 100;
             }
 
-            $produks = Produk::query()->orderBy('nama_produk')->get();
+            $cabangScope = $this->resolveCabangScope($request);
+            $produkQuery = Produk::query();
+            if ($cabangScope !== null) {
+                $produkQuery->where(function ($q) use ($cabangScope) {
+                    $q->where('id_cabang', $cabangScope)->orWhereNull('id_cabang');
+                });
+            }
+            $produks = $produkQuery->orderBy('nama_produk')->get();
 
             $data = $produks->map(function ($p) use ($threshold) {
                 $stok = (int) $p->stok;
@@ -554,6 +616,7 @@ class ReportController extends Controller
             return $this->successResponse('Laporan persediaan berhasil diambil.', [
                 'filters' => [
                     'threshold' => $threshold,
+                    'id_cabang' => $cabangScope,
                 ],
                 'summary' => [
                     'total_produk' => $data->count(),

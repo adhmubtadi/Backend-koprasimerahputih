@@ -26,7 +26,7 @@ class UpdateAnggotaRequest extends BaseApiRequest
                 Rule::unique('anggotas', 'email')->ignore($idAnggota, 'id_anggota'),
             ],
             'id_cabang' => ['sometimes', 'integer', 'exists:cabangs,id_cabang'],
-            'status' => ['sometimes', 'in:Calon,Aktif'],
+            'status' => ['sometimes', 'in:Calon,Aktif,Non-Aktif'],
         ];
     }
 }

@@ -17,6 +17,7 @@ class UsulanStok extends Model
         'id_cabang',
         'jumlah',
         'harga_beli',
+        'harga_jual',
         'status',
         'id_pengurus_acc', 
         'tanggal_usulan'
@@ -47,5 +48,10 @@ class UsulanStok extends Model
     public function supplier()
     {
         return $this->belongsTo(Supplier::class, 'id_supplier', 'id_supplier');
+    }
+
+    public function cabang()
+    {
+        return $this->belongsTo(Cabang::class, 'id_cabang', 'id_cabang');
     }
 }

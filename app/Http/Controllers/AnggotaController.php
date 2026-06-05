@@ -10,13 +10,14 @@ use App\Models\Account;
 use App\Models\Anggota;
 use App\Models\Simpanan;
 use App\Traits\ApiResponse;
+use App\Traits\ResolvesCabangScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class AnggotaController extends Controller
 {
-    use ApiResponse;
+    use ApiResponse, ResolvesCabangScope;
 
     /**
      * Pendaftaran calon anggota (public).
@@ -82,7 +83,10 @@ class AnggotaController extends Controller
             $query->where('status', $request->string('status'));
         }
 
-        if ($request->filled('id_cabang')) {
+        $cabangScope = $this->resolveCabangScope($request);
+        if ($cabangScope !== null) {
+            $query->where('id_cabang', $cabangScope);
+        } elseif ($request->filled('id_cabang')) {
             $query->where('id_cabang', (int) $request->query('id_cabang'));
         }
 

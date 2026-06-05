@@ -3,9 +3,9 @@
 namespace App\Services;
 
 use App\Models\DetailTransaksi;
+use App\Models\Kasir;
 use App\Models\Produk;
 use App\Models\TransaksiPos;
-use App\Services\JurnalService;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -18,10 +18,16 @@ class TransactionService
     {
         $warnings = [];
         $details = [];
+        $threshold = (int) config('koperasi.stok_warning_threshold', 100);
 
         DB::beginTransaction();
 
         try {
+            $kasir = Kasir::with('cabang')->find($data['id_kasir'] ?? null);
+            if (! $kasir) {
+                throw new RuntimeException('Kasir tidak ditemukan.');
+            }
+
             $items = $data['items'] ?? [];
             $subTotal = 0.0;
 
@@ -30,10 +36,18 @@ class TransactionService
             }
 
             foreach ($items as $item) {
-                $produk = Produk::where('id_produk', $item['id_produk'])->lockForUpdate()->first();
+                $produkQuery = Produk::where('id_produk', $item['id_produk']);
+
+                if ($kasir->id_cabang) {
+                    $produkQuery->where(function ($q) use ($kasir) {
+                        $q->where('id_cabang', $kasir->id_cabang)->orWhereNull('id_cabang');
+                    });
+                }
+
+                $produk = $produkQuery->lockForUpdate()->first();
 
                 if (! $produk) {
-                    throw new RuntimeException('Produk dengan id '.$item['id_produk'].' tidak ditemukan.');
+                    throw new RuntimeException('Produk dengan id '.$item['id_produk'].' tidak ditemukan di cabang ini.');
                 }
 
                 $jumlah = (int) $item['jumlah'];
@@ -48,8 +62,8 @@ class TransactionService
                 $produk->stok -= $jumlah;
                 $produk->save();
 
-                if ($produk->stok < 100) {
-                    $warnings[] = 'Stok menipis: '.$produk->nama_produk;
+                if ($produk->stok < $threshold) {
+                    $warnings[] = 'Stok menipis (< '.$threshold.' pcs): '.$produk->nama_produk;
                 }
 
                 $hargaSatuan = (float) $produk->harga_jual;
@@ -66,7 +80,7 @@ class TransactionService
             $totalBayar = $subTotal + $ppn;
 
             $transaksi = TransaksiPos::create([
-                'id_kasir' => $data['id_kasir'],
+                'id_kasir' => $kasir->id_kasir,
                 'id_anggota' => $data['id_anggota'] ?? null,
                 'tanggal_jam' => $data['tanggal_jam'] ?? now(),
                 'total_bayar' => $totalBayar,
@@ -83,7 +97,6 @@ class TransactionService
                 ]);
             }
 
-            // Jurnal otomatis POS + HPP (wajib setelah detail transaksi tersimpan)
             $transaksiForJurnal = $transaksi->fresh()->load(['kasir', 'detailTransaksi.produk']);
             app(JurnalService::class)->catatTransaksiPosDanHpp($transaksiForJurnal);
 

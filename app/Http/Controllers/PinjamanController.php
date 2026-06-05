@@ -5,18 +5,46 @@ namespace App\Http\Controllers;
 use App\Http\Requests\ApprovePinjamanRequest;
 use App\Http\Requests\StorePinjamanRequest;
 use App\Http\Resources\PinjamanResource;
+use App\Models\Anggota;
 use App\Models\Pinjaman;
 use App\Services\PinjamanService;
 use App\Traits\ApiResponse;
+use App\Traits\ResolvesCabangScope;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class PinjamanController extends Controller
 {
-    use ApiResponse;
+    use ApiResponse, ResolvesCabangScope;
 
     public function __construct(private readonly PinjamanService $pinjamanService)
     {
+    }
+
+    public function index(Request $request): JsonResponse
+    {
+        $query = Pinjaman::with(['anggota.cabang', 'pengurusAcc']);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->string('status'));
+        }
+
+        $cabangScope = $this->resolveCabangScope($request);
+        if ($cabangScope !== null) {
+            $query->whereHas('anggota', fn ($q) => $q->where('id_cabang', $cabangScope));
+        }
+
+        if ($request->user()?->role === 'Anggota') {
+            $query->where('id_anggota', $request->user()->anggota->id_anggota);
+        }
+
+        $data = $query->orderByDesc('tanggal_pengajuan')->get();
+
+        return $this->successResponse(
+            'Daftar pinjaman berhasil diambil.',
+            PinjamanResource::collection($data)
+        );
     }
 
     public function store(StorePinjamanRequest $request): JsonResponse
@@ -25,12 +53,12 @@ class PinjamanController extends Controller
             $pinjaman = $this->pinjamanService->ajukanPinjaman($request->validated());
 
             return $this->successResponse(
-                message: 'Pengajuan pinjaman berhasil dibuat.',
-                data: new PinjamanResource($pinjaman),
-                code: 201
+                'Pengajuan pinjaman berhasil dibuat. Menunggu persetujuan pengurus.',
+                new PinjamanResource($pinjaman),
+                201
             );
         } catch (\Throwable $e) {
-            return $this->errorResponse('Terjadi kesalahan saat membuat pinjaman.', $e->getMessage(), 500);
+            return $this->errorResponse('Terjadi kesalahan saat membuat pinjaman.', $e->getMessage(), 422);
         }
     }
 
@@ -41,7 +69,12 @@ class PinjamanController extends Controller
 
         DB::beginTransaction();
         try {
-            $pinjaman = Pinjaman::lockForUpdate()->find($id_pinjaman);
+            $pinjaman = Pinjaman::lockForUpdate()->with('anggota')->find($id_pinjaman);
+
+            if (! $pinjaman) {
+                DB::rollBack();
+                return $this->errorResponse('Pinjaman tidak ditemukan.', null, 404);
+            }
 
             if ($pinjaman->status !== 'Pending') {
                 DB::rollBack();
@@ -58,16 +91,23 @@ class PinjamanController extends Controller
                 return $this->errorResponse('Akun pengurus tidak valid.', null, 422);
             }
 
+            $cabangScope = $this->resolveCabangScope($request);
+            if ($cabangScope !== null && $pinjaman->anggota?->id_cabang !== $cabangScope) {
+                DB::rollBack();
+                return $this->errorResponse('Pinjaman ini bukan dari cabang Anda.', null, 403);
+            }
+
             $pinjaman->status = 'Approved';
             $pinjaman->id_pengurus_acc = $pengurus->id_pengurus;
             $pinjaman->save();
+
             app(\App\Services\JurnalService::class)->catatPinjamanDisetujui($pinjaman);
 
             DB::commit();
 
             return $this->successResponse(
                 'Pinjaman berhasil di-ACC.',
-                new PinjamanResource($pinjaman->fresh()),
+                new PinjamanResource($pinjaman->fresh(['anggota', 'pengurusAcc'])),
                 200
             );
         } catch (\Throwable $e) {
@@ -78,7 +118,7 @@ class PinjamanController extends Controller
 
     public function showStatus(int $id_pinjaman): JsonResponse
     {
-        $pinjaman = Pinjaman::find($id_pinjaman);
+        $pinjaman = Pinjaman::with(['anggota', 'pengurusAcc'])->find($id_pinjaman);
 
         if (! $pinjaman) {
             return $this->errorResponse('Data pinjaman tidak ditemukan.', null, 404);
@@ -98,16 +138,17 @@ class PinjamanController extends Controller
             200
         );
     }
-    public function destroy($id_pinjaman): JsonResponse
-{
-    $pinjaman = Pinjaman::find($id_pinjaman);
 
-    if (!$pinjaman) {
-        return $this->errorResponse('Data pinjaman tidak ditemukan.', null, 404);
+    public function destroy(int $id_pinjaman): JsonResponse
+    {
+        $pinjaman = Pinjaman::find($id_pinjaman);
+
+        if (! $pinjaman) {
+            return $this->errorResponse('Data pinjaman tidak ditemukan.', null, 404);
+        }
+
+        $pinjaman->delete();
+
+        return $this->successResponse('Pinjaman berhasil dihapus.', null, 200);
     }
-
-    $pinjaman->delete();
-
-    return $this->successResponse('Pinjaman berhasil dihapus.', null, 200);
-}
 }

@@ -11,12 +11,18 @@ class Produk extends Model
     public $timestamps = false;
 
     protected $fillable = [
+        'id_cabang',
         'id_supplier',
         'nama_produk',
         'harga_beli',
         'harga_jual',
         'stok',
     ];
+
+    public function cabang()
+    {
+        return $this->belongsTo(Cabang::class, 'id_cabang', 'id_cabang');
+    }
 
     public function detailTransaksi()
     {
