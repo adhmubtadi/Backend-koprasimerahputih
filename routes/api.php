@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\CabangController;
 use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\PortalAnggotaController;
+use App\Http\Controllers\GoogleAuthController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -22,6 +23,8 @@ use Illuminate\Support\Facades\Route;
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/anggota/register', [AnggotaController::class, 'register']);
 Route::get('/cabangs', [CabangController::class, 'index']);
+Route::get('/auth/google', [GoogleAuthController::class, 'redirectToGoogle']);
+Route::get('/auth/google/callback', [GoogleAuthController::class, 'handleGoogleCallback']);
 
 // --- PROTECTED ---
 Route::middleware('auth:sanctum')->group(function () {
@@ -58,7 +61,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:Anggota')->group(function () {
         Route::get('/portal', [PortalAnggotaController::class, 'dashboard']);
         Route::get('/portal/transaksi', [PortalAnggotaController::class, 'riwayatTransaksi']);
-        Route::get('/me', [AnggotaController::class, 'me']);
+        Route::get('/portal/me', [AnggotaController::class, 'me']);
         Route::get('/simpanans', [SimpananController::class, 'index']);
         Route::post('/pinjamans', [PinjamanController::class, 'store']);
         Route::get('/pinjamans', [PinjamanController::class, 'index']);
