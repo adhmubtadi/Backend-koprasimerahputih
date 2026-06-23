@@ -15,6 +15,8 @@ class Simpanan extends Model
         'jenis_simpanan',
         'jumlah',
         'tanggal',
+        'bukti_transfer',
+        'status',
     ];
 
     protected function casts(): array

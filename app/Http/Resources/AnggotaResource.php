@@ -19,6 +19,8 @@ class AnggotaResource extends JsonResource
             'email' => $this->email,
             'tanggal_daftar' => $this->tanggal_daftar?->format('Y-m-d'),
             'status' => $this->status,
+            'role' => $this->account?->role ?? 'Anggota',
+            'peran' => $this->account?->role ?? 'Anggota',
             'id_cabang' => $this->id_cabang,
             'cabang' => $this->whenLoaded('cabang', fn () => [
                 'id_cabang' => $this->cabang->id_cabang,

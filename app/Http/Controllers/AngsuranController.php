@@ -9,6 +9,7 @@ use App\Services\JurnalService;
 use Illuminate\Http\Request;
 use App\Traits\ApiResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\JsonResponse;
 
 class AngsuranController extends Controller
@@ -21,7 +22,7 @@ class AngsuranController extends Controller
         $request->validate([
             'id_pinjaman' => 'required|exists:pinjamans,id_pinjaman',
             'jumlah_bayar' => 'required|numeric',
-            'bukti_transfer' => 'required|image|mimes:jpg,png,jpeg|max:2048',
+            'bukti_transfer' => 'required|file|mimes:jpg,png,jpeg,pdf|max:2048',
         ]);
 
         $path = $request->file('bukti_transfer')->store('bukti_pembayaran', 'public');
@@ -121,6 +122,38 @@ class AngsuranController extends Controller
                 'simpanan_sukarela' => $simpananSukarela,
             ]);
         });
+    }
+
+    public function reject($id_angsuran): JsonResponse
+    {
+        $angsuran = Angsuran::findOrFail($id_angsuran);
+
+        if ($angsuran->status !== 'Pending') {
+            return $this->errorResponse('Pembayaran ini sudah diproses.', null, 400);
+        }
+
+        $angsuran->update(['status' => 'Rejected']);
+
+        return $this->successResponse('Pembayaran berhasil ditolak.', $angsuran->fresh('pinjaman'));
+    }
+
+    public function bukti(Request $request, $id_angsuran)
+    {
+        $angsuran = Angsuran::with('pinjaman')->findOrFail($id_angsuran);
+        $user = $request->user();
+
+        if ($user->role === 'Anggota') {
+            $anggota = $user->anggota;
+            if (! $anggota || $angsuran->pinjaman?->id_anggota !== $anggota->id_anggota) {
+                return $this->errorResponse('Anda tidak punya akses ke bukti pembayaran ini.', null, 403);
+            }
+        }
+
+        if (! $angsuran->bukti_transfer || ! Storage::disk('public')->exists($angsuran->bukti_transfer)) {
+            return $this->errorResponse('File bukti pembayaran tidak ditemukan.', null, 404);
+        }
+
+        return response()->file(Storage::disk('public')->path($angsuran->bukti_transfer));
     }
 
     // 3. Lihat Riwayat Angsuran & Statusnya

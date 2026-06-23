@@ -27,7 +27,7 @@ class DashboardController extends Controller
             $threshold = (int) config('koperasi.stok_warning_threshold', 100);
 
             $anggotaQuery = Anggota::query();
-            $simpananQuery = Simpanan::query();
+            $simpananQuery = Simpanan::query()->where('status', 'Verified');
             $produkQuery = Produk::query();
             $pinjamanQuery = Pinjaman::query();
             $usulanQuery = UsulanStok::query();

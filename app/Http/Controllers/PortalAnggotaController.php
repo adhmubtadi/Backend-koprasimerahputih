@@ -39,11 +39,14 @@ class PortalAnggotaController extends Controller
         $anggota->load(['cabang', 'account']);
 
         $simpanan = Simpanan::where('id_anggota', $anggota->id_anggota)
+            ->where('status', 'Verified')
             ->selectRaw('jenis_simpanan, SUM(jumlah) as total')
             ->groupBy('jenis_simpanan')
             ->get();
 
-        $totalSimpanan = (float) Simpanan::where('id_anggota', $anggota->id_anggota)->sum('jumlah');
+        $totalSimpanan = (float) Simpanan::where('id_anggota', $anggota->id_anggota)
+            ->where('status', 'Verified')
+            ->sum('jumlah');
 
         $pinjamans = Pinjaman::where('id_anggota', $anggota->id_anggota)
             ->orderByDesc('tanggal_pengajuan')

@@ -116,6 +116,51 @@ class PinjamanController extends Controller
         }
     }
 
+    public function reject(ApprovePinjamanRequest $request, int $id_pinjaman): JsonResponse
+    {
+        $validated = $request->validated();
+        $id_pinjaman = (int) $validated['id_pinjaman'];
+
+        DB::beginTransaction();
+        try {
+            $pinjaman = Pinjaman::lockForUpdate()->with('anggota')->find($id_pinjaman);
+
+            if (! $pinjaman) {
+                DB::rollBack();
+                return $this->errorResponse('Pinjaman tidak ditemukan.', null, 404);
+            }
+
+            if ($pinjaman->status !== 'Pending') {
+                DB::rollBack();
+                return $this->errorResponse(
+                    'Pinjaman hanya bisa ditolak dari status Pending.',
+                    new PinjamanResource($pinjaman),
+                    422
+                );
+            }
+
+            $cabangScope = $this->resolveCabangScope($request);
+            if ($cabangScope !== null && $pinjaman->anggota?->id_cabang !== $cabangScope) {
+                DB::rollBack();
+                return $this->errorResponse('Pinjaman ini bukan dari cabang Anda.', null, 403);
+            }
+
+            $pinjaman->status = 'Rejected';
+            $pinjaman->save();
+
+            DB::commit();
+
+            return $this->successResponse(
+                'Pinjaman berhasil ditolak.',
+                new PinjamanResource($pinjaman->fresh(['anggota', 'pengurusAcc'])),
+                200
+            );
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return $this->errorResponse('Terjadi kesalahan saat menolak pinjaman.', $e->getMessage(), 500);
+        }
+    }
+
     public function showStatus(int $id_pinjaman): JsonResponse
     {
         $pinjaman = Pinjaman::with(['anggota', 'pengurusAcc'])->find($id_pinjaman);

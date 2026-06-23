@@ -19,8 +19,18 @@ class AuthController extends Controller
             'password' => 'required|string',
         ]);
 
-        // Cari user berdasarkan username
-        $user = Account::where('username', $request->username)->first();
+        // Cari user berdasarkan username atau email
+        $loginInput = $request->username;
+        $user = Account::where('username', $loginInput)
+            ->orWhere('email', $loginInput)
+            ->first();
+
+        if (!$user && filter_var($loginInput, FILTER_VALIDATE_EMAIL)) {
+            $anggota = \App\Models\Anggota::where('email', $loginInput)->first();
+            if ($anggota) {
+                $user = Account::find($anggota->id_account);
+            }
+        }
 
         // Cek apakah user ada dan passwordnya benar
         if (!$user || !Hash::check($request->password, $user->password)) {

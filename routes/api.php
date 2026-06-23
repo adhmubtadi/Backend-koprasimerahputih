@@ -36,10 +36,15 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::post('/logout', [AuthController::class, 'logout']);
+    Route::post('/simpanans', [SimpananController::class, 'store'])
+        ->middleware('role:Anggota,Pengurus,Admin');
 
     // Dashboard monitoring (Pengurus & Admin)
     Route::middleware('role:Pengurus,Admin')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index']);
+        Route::patch('/members/{id}/approve', [AnggotaController::class, 'approve']);
+        Route::patch('/members/{id}/reject', [AnggotaController::class, 'reject']);
+        Route::post('/members/bulk-delete', [AnggotaController::class, 'bulkDelete']);
     });
 
     // --- ADMIN ONLY: Manajemen Anggota & Pengguna ---
@@ -63,6 +68,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/portal/transaksi', [PortalAnggotaController::class, 'riwayatTransaksi']);
         Route::get('/portal/me', [AnggotaController::class, 'me']);
         Route::get('/simpanans', [SimpananController::class, 'index']);
+        Route::get('/simpanans/rules', [SimpananController::class, 'rules']);
         Route::post('/pinjamans', [PinjamanController::class, 'store']);
         Route::get('/pinjamans', [PinjamanController::class, 'index']);
         Route::get('/pinjamans/{id_pinjaman}/status', [PinjamanController::class, 'showStatus']);
@@ -104,10 +110,14 @@ Route::middleware('auth:sanctum')->group(function () {
         // Simpan pinjam
         Route::get('/pinjamans/manage', [PinjamanController::class, 'index']);
         Route::patch('/pinjamans/{id_pinjaman}/approve', [PinjamanController::class, 'approve']);
+        Route::patch('/pinjamans/{id_pinjaman}/reject', [PinjamanController::class, 'reject']);
         Route::get('/pinjamans/{id_pinjaman}/status', [PinjamanController::class, 'showStatus']);
+        Route::get('/angsurans/manage', [AngsuranController::class, 'history']);
         Route::patch('/angsurans/{id_angsuran}/verify', [AngsuranController::class, 'verify']);
+        Route::patch('/angsurans/{id_angsuran}/reject', [AngsuranController::class, 'reject']);
         Route::get('/simpanans/manage', [SimpananController::class, 'index']);
-        Route::post('/simpanans', [SimpananController::class, 'store']);
+        Route::patch('/simpanans/{id_simpanan}/verify', [SimpananController::class, 'verify']);
+        Route::patch('/simpanans/{id_simpanan}/reject', [SimpananController::class, 'reject']);
         Route::get('/simpanans/saldo/{id_anggota}', [SimpananController::class, 'cekSaldo']);
 
         // Persetujuan usulan stok & monitoring stok

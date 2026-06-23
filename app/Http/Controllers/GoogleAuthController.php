@@ -43,6 +43,7 @@ class GoogleAuthController extends Controller
                     'username' => $username,
                     'password' => Hash::make(Str::random(16)),
                     'role' => 'Anggota',
+                    'email' => $email,
                 ]);
 
                 // Assign to the first branch as default
@@ -57,7 +58,7 @@ class GoogleAuthController extends Controller
                     'email' => $email,
                     'id_cabang' => $idCabang,
                     'tanggal_daftar' => now()->toDateString(),
-                    'status' => 'Calon',
+                    'status' => 'Tertunda',
                 ]);
             }
 

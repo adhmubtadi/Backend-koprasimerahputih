@@ -20,6 +20,18 @@ class PinjamanResource extends JsonResource
             'tenor' => (int) $this->tenor,
             'tanggal_pengajuan' => optional($this->tanggal_pengajuan)->format('Y-m-d'),
             'status' => $this->status,
+            'anggota' => $this->whenLoaded('anggota', fn () => [
+                'id_anggota' => $this->anggota?->id_anggota,
+                'nomor_anggota' => $this->anggota?->nomor_anggota,
+                'nama_anggota' => $this->anggota?->nama_anggota,
+                'status' => $this->anggota?->status,
+                'id_cabang' => $this->anggota?->id_cabang,
+                'cabang' => $this->anggota?->relationLoaded('cabang') && $this->anggota?->cabang ? [
+                    'id_cabang' => $this->anggota->cabang->id_cabang,
+                    'nama_cabang' => $this->anggota->cabang->nama_cabang,
+                    'lokasi' => $this->anggota->cabang->lokasi,
+                ] : null,
+            ]),
         ];
     }
 }

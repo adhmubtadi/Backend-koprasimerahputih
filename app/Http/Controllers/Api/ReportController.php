@@ -542,7 +542,7 @@ class ReportController extends Controller
             $end = $request->query('end');
             $cabangScope = $this->resolveCabangScope($request);
 
-            $query = Simpanan::query()->with('anggota');
+            $query = Simpanan::query()->with('anggota')->where('status', 'Verified');
             if ($idAnggota !== null) {
                 $query->where('id_anggota', (int) $idAnggota);
             }
@@ -630,4 +630,3 @@ class ReportController extends Controller
         }
     }
 }
-
