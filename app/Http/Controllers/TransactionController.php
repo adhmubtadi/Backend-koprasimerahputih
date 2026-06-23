@@ -31,7 +31,12 @@ class TransactionController extends Controller
                 code: 201
             );
         } catch (\Throwable $e) {
-            return $this->errorResponse('Terjadi kesalahan saat checkout.', $e->getMessage(), 500);
+            $code = 500;
+            $msg = $e->getMessage();
+            if (str_contains($msg, 'tidak mencukupi') || str_contains($msg, 'stok') || str_contains($msg, 'Stok')) {
+                $code = 422;
+            }
+            return $this->errorResponse($msg, null, $code);
         }
     }
 

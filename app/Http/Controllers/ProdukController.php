@@ -61,20 +61,26 @@ class ProdukController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
+        $role = $request->user()?->role;
+        $rules = [
             'id_cabang' => 'required|exists:cabangs,id_cabang',
             'id_supplier' => 'required|exists:suppliers,id_supplier',
             'nama_produk' => 'required|string|max:255',
             'harga_beli' => 'required|numeric|min:0',
-            'harga_jual' => 'required|numeric|min:0',
             'stok' => 'required|integer|min:0',
-        ]);
+        ];
+
+        if ($role === 'Admin' || $role === 'Pengurus') {
+            $rules['harga_jual'] = 'required|numeric|min:0';
+        }
+
+        $validator = Validator::make($request->all(), $rules);
 
         if ($validator->fails()) {
             return $this->errorResponse('Validasi gagal', $validator->errors(), 422);
         }
 
-        if ($request->harga_jual < $request->harga_beli) {
+        if (($role === 'Admin' || $role === 'Pengurus') && $request->harga_jual < $request->harga_beli) {
             return $this->errorResponse('Harga jual tidak boleh lebih rendah dari harga beli!', null, 400);
         }
 
@@ -83,9 +89,17 @@ class ProdukController extends Controller
             return $this->errorResponse('Produk hanya bisa ditambahkan untuk cabang Anda.', null, 403);
         }
 
-        $produk = Produk::create($request->only([
-            'id_cabang', 'id_supplier', 'nama_produk', 'harga_beli', 'harga_jual', 'stok',
-        ]));
+        $data = $request->only([
+            'id_cabang', 'id_supplier', 'nama_produk', 'harga_beli', 'stok',
+        ]);
+
+        if ($role === 'Admin' || $role === 'Pengurus') {
+            $data['harga_jual'] = (float) $request->harga_jual;
+        } else {
+            $data['harga_jual'] = 0.0;
+        }
+
+        $produk = Produk::create($data);
 
         return $this->successResponse('Produk berhasil ditambahkan', $produk, 201);
     }
@@ -118,19 +132,46 @@ class ProdukController extends Controller
             return $this->errorResponse('Produk tidak ditemukan di cabang Anda.', null, 403);
         }
 
-        $validator = Validator::make($request->all(), [
+        $role = $request->user()?->role;
+        $rules = [
             'id_supplier' => 'sometimes|exists:suppliers,id_supplier',
             'nama_produk' => 'sometimes|string|max:255',
             'harga_beli' => 'sometimes|numeric|min:0',
-            'harga_jual' => 'sometimes|numeric|min:0',
             'stok' => 'sometimes|integer|min:0',
-        ]);
+        ];
+
+        if ($role === 'Admin' || $role === 'Pengurus') {
+            $rules['harga_jual'] = 'sometimes|numeric|min:0';
+        }
+
+        $validator = Validator::make($request->all(), $rules);
 
         if ($validator->fails()) {
             return $this->errorResponse('Validasi gagal', $validator->errors(), 422);
         }
 
-        $produk->update($request->all());
+        $newHargaBeli = $request->has('harga_beli') ? (float) $request->harga_beli : (float) $produk->harga_beli;
+        $newHargaJual = $produk->harga_jual;
+        if ($role === 'Admin' || $role === 'Pengurus') {
+            if ($request->has('harga_jual')) {
+                $newHargaJual = (float) $request->harga_jual;
+            }
+        }
+        if (($role === 'Admin' || $role === 'Pengurus') && $newHargaJual < $newHargaBeli) {
+            return $this->errorResponse('Harga jual tidak boleh lebih rendah dari harga beli!', null, 400);
+        }
+
+        $data = $request->only([
+            'id_supplier', 'nama_produk', 'harga_beli', 'stok',
+        ]);
+
+        if ($role === 'Admin' || $role === 'Pengurus') {
+            if ($request->has('harga_jual')) {
+                $data['harga_jual'] = (float) $request->harga_jual;
+            }
+        }
+
+        $produk->update($data);
 
         return $this->successResponse('Produk berhasil diupdate', $produk);
     }

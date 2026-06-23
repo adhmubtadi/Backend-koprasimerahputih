@@ -19,15 +19,20 @@ class PinjamanService
             throw new RuntimeException('Hanya anggota aktif yang dapat mengajukan pinjaman.');
         }
 
+        $tenor = (string) ($data['tenor'] ?? '');
+        if (! in_array($tenor, ['6', '12', '18', '24'], true)) {
+            throw new \RuntimeException('Tenor tidak valid. Hanya menerima tenor 6, 12, 18, atau 24 bulan.');
+        }
+
         $jumlahPinjaman = (float) $data['jumlah_pinjaman'];
-        $feePercent = (float) config('koperasi.biaya_operasional_persen', 0.02);
+        $feePercent = 0.02;
 
         return Pinjaman::create([
             'id_anggota' => $anggota->id_anggota,
             'id_pengurus_acc' => null,
             'jumlah_pinjaman' => $jumlahPinjaman,
             'biaya_operasional' => round($jumlahPinjaman * $feePercent, 2),
-            'tenor' => (string) $data['tenor'],
+            'tenor' => $tenor,
             'tanggal_pengajuan' => $data['tanggal_pengajuan'] ?? now()->toDateString(),
             'status' => 'Pending',
         ]);
