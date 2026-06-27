@@ -9,6 +9,8 @@ class PinjamanResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $attributes = $this->resource->getAttributes();
+
         return [
             'id_pinjaman' => $this->id_pinjaman,
             'id_anggota' => $this->id_anggota,
@@ -20,6 +22,9 @@ class PinjamanResource extends JsonResource
             'tenor' => (int) $this->tenor,
             'tanggal_pengajuan' => optional($this->tanggal_pengajuan)->format('Y-m-d'),
             'status' => $this->status,
+            'sisa_pinjaman' => $this->when(array_key_exists('sisa_pinjaman', $attributes), fn () => (float) ($this->sisa_pinjaman ?? $this->jumlah_pinjaman)),
+            'sisa_tenor' => $this->when(array_key_exists('verified_installments_count', $attributes), fn () => max(0, (int) $this->tenor - (int) $this->verified_installments_count)),
+            'pending_installments_count' => $this->when(array_key_exists('pending_installments_count', $attributes), fn () => (int) $this->pending_installments_count),
             'anggota' => $this->whenLoaded('anggota', fn () => [
                 'id_anggota' => $this->anggota?->id_anggota,
                 'nomor_anggota' => $this->anggota?->nomor_anggota,

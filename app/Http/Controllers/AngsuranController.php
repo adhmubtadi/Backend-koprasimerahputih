@@ -2,19 +2,21 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Resources\AngsuranResource;
 use App\Models\Angsuran;
 use App\Models\Pinjaman;
 use App\Models\Simpanan;
 use App\Services\JurnalService;
 use Illuminate\Http\Request;
 use App\Traits\ApiResponse;
+use App\Traits\ResolvesCabangScope;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\JsonResponse;
 
 class AngsuranController extends Controller
 {
-    use ApiResponse;
+    use ApiResponse, ResolvesCabangScope;
 
     // 1. Anggota upload pembayaran (Status Pending)
     public function store(Request $request)
@@ -160,7 +162,20 @@ class AngsuranController extends Controller
     public function history(Request $request)
     {
         $user = $request->user();
-        $query = Angsuran::with('pinjaman');
+        $perPage = min(max((int) $request->integer('per_page', 25), 1), 100);
+        $query = Angsuran::query()
+            ->select([
+                'id_angsuran',
+                'id_pinjaman',
+                'jumlah_bayar',
+                'pokok_bayar',
+                'fee_bayar',
+                'tanggal_bayar',
+                'sisa_pinjaman',
+                'bukti_transfer',
+                'status',
+            ])
+            ->with('pinjaman:id_pinjaman,id_anggota,jumlah_pinjaman,status');
 
         if ($user->role === 'Anggota') {
             $query->whereHas('pinjaman', function($q) use ($user) {
@@ -168,14 +183,23 @@ class AngsuranController extends Controller
             });
         }
 
-        $data = $query->orderBy('id_angsuran', 'desc')->get();
-        
-        $data->map(function ($item) {
-            $item->url_bukti = $item->bukti_transfer ? asset('storage/' . $item->bukti_transfer) : null;
-            return $item;
-        });
+        if ($request->filled('id_pinjaman')) {
+            $query->where('id_pinjaman', $request->integer('id_pinjaman'));
+        }
 
-        return $this->successResponse('Riwayat angsuran berhasil dimuat.', $data);
+        $cabangScope = $this->resolveCabangScope($request);
+        if ($cabangScope !== null) {
+            $query->whereHas('pinjaman.anggota', fn ($q) => $q->where('id_cabang', $cabangScope));
+        }
+
+        $data = $request->boolean('paginate', true)
+            ? $query->orderByDesc('id_angsuran')->paginate($perPage)
+            : $query->orderByDesc('id_angsuran')->get();
+
+        return $this->successResponse(
+            'Riwayat angsuran berhasil dimuat.',
+            AngsuranResource::collection($data)
+        );
     }
 
     // 4. Cek Sisa Pinjaman Spesifik

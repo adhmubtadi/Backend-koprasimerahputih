@@ -2,14 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Resources\SimpananResource;
 use App\Models\Anggota;
 use App\Models\Simpanan;
 use App\Traits\ApiResponse;
 use App\Traits\ResolvesCabangScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Facades\Storage;
 use App\Services\JurnalService;
 
 class SimpananController extends Controller
@@ -18,7 +19,22 @@ class SimpananController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $query = Simpanan::with('anggota');
+        if ($request->string('view')->toString() === 'summary') {
+            return $this->summary($request);
+        }
+
+        $perPage = min(max((int) $request->integer('per_page', 25), 1), 100);
+        $query = Simpanan::query()
+            ->select([
+                'id_simpanan',
+                'id_anggota',
+                'jenis_simpanan',
+                'jumlah',
+                'tanggal',
+                'bukti_transfer',
+                'status',
+            ])
+            ->with('anggota:id_anggota,nama_anggota,status,id_cabang');
 
         if ($request->has('id_anggota')) {
             $query->where('id_anggota', $request->id_anggota);
@@ -37,14 +53,82 @@ class SimpananController extends Controller
             $query->where('id_anggota', $request->user()->anggota->id_anggota);
         }
 
-        $data = $query->orderByDesc('id_simpanan')->get();
-        $data->each(function (Simpanan $simpanan) {
-            $simpanan->url_bukti = $simpanan->bukti_transfer
-                ? asset('storage/' . $simpanan->bukti_transfer)
-                : null;
-        });
+        $data = $request->boolean('paginate', true)
+            ? $query->orderByDesc('id_simpanan')->paginate($perPage)
+            : $query->orderByDesc('id_simpanan')->get();
 
-        return $this->successResponse('Riwayat simpanan berhasil diambil.', $data);
+        return $this->successResponse(
+            'Riwayat simpanan berhasil diambil.',
+            SimpananResource::collection($data)
+        );
+    }
+
+    private function summary(Request $request): JsonResponse
+    {
+        $perPage = min(max((int) $request->integer('per_page', 25), 1), 100);
+        $query = Anggota::query()
+            ->select(['id_anggota', 'nama_anggota', 'status', 'id_cabang'])
+            ->selectSub(
+                Simpanan::query()
+                    ->selectRaw('COALESCE(SUM(jumlah), 0)')
+                    ->whereColumn('simpanans.id_anggota', 'anggotas.id_anggota')
+                    ->where('status', 'Verified')
+                    ->where('jenis_simpanan', 'Pokok'),
+                'simpanan_pokok'
+            )
+            ->selectSub(
+                Simpanan::query()
+                    ->selectRaw('COALESCE(SUM(jumlah), 0)')
+                    ->whereColumn('simpanans.id_anggota', 'anggotas.id_anggota')
+                    ->where('status', 'Verified')
+                    ->where('jenis_simpanan', 'Wajib'),
+                'simpanan_wajib'
+            )
+            ->selectSub(
+                Simpanan::query()
+                    ->selectRaw('COALESCE(SUM(jumlah), 0)')
+                    ->whereColumn('simpanans.id_anggota', 'anggotas.id_anggota')
+                    ->where('status', 'Verified')
+                    ->where('jenis_simpanan', 'Sukarela'),
+                'simpanan_sukarela'
+            )
+            ->selectSub(
+                Simpanan::query()
+                    ->selectRaw('COUNT(*)')
+                    ->whereColumn('simpanans.id_anggota', 'anggotas.id_anggota')
+                    ->where('status', 'Pending'),
+                'pending_simpanan'
+            );
+
+        $cabangScope = $this->resolveCabangScope($request);
+        if ($cabangScope !== null) {
+            $query->where('id_cabang', $cabangScope);
+        }
+
+        if ($request->user()?->role === 'Anggota') {
+            $query->where('id_anggota', $request->user()->anggota->id_anggota);
+        }
+
+        if ($request->filled('search')) {
+            $query->where('nama_anggota', 'like', '%' . $request->string('search')->toString() . '%');
+        }
+
+        $data = $query
+            ->orderByDesc(DB::raw('(simpanan_pokok + simpanan_wajib + simpanan_sukarela)'))
+            ->paginate($perPage);
+
+        $data->getCollection()->transform(fn (Anggota $anggota) => [
+            'id_anggota' => $anggota->id_anggota,
+            'nama_anggota' => $anggota->nama_anggota,
+            'status' => $anggota->status,
+            'simpanan_pokok' => (float) $anggota->simpanan_pokok,
+            'simpanan_wajib' => (float) $anggota->simpanan_wajib,
+            'simpanan_sukarela' => (float) $anggota->simpanan_sukarela,
+            'total_simpanan' => (float) $anggota->simpanan_pokok + (float) $anggota->simpanan_wajib + (float) $anggota->simpanan_sukarela,
+            'pending_simpanan' => (int) $anggota->pending_simpanan,
+        ]);
+
+        return $this->successResponse('Ringkasan simpanan berhasil diambil.', $data);
     }
 
     public function rules(): JsonResponse

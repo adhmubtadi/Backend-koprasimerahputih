@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\ApprovePinjamanRequest;
 use App\Http\Requests\StorePinjamanRequest;
 use App\Http\Resources\PinjamanResource;
-use App\Models\Anggota;
+use App\Models\Angsuran;
 use App\Models\Pinjaman;
 use App\Services\PinjamanService;
 use App\Traits\ApiResponse;
@@ -24,7 +24,22 @@ class PinjamanController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $query = Pinjaman::with(['anggota.cabang', 'pengurusAcc']);
+        $perPage = min(max((int) $request->integer('per_page', 25), 1), 100);
+        $query = Pinjaman::query()
+            ->select([
+                'id_pinjaman',
+                'id_anggota',
+                'id_pengurus_acc',
+                'jumlah_pinjaman',
+                'biaya_operasional',
+                'tenor',
+                'tanggal_pengajuan',
+                'status',
+            ])
+            ->with([
+                'anggota:id_anggota,nomor_anggota,nama_anggota,status,id_cabang',
+                'anggota.cabang:id_cabang,nama_cabang,lokasi',
+            ]);
 
         if ($request->filled('status')) {
             $query->where('status', $request->string('status'));
@@ -39,7 +54,30 @@ class PinjamanController extends Controller
             $query->where('id_anggota', $request->user()->anggota->id_anggota);
         }
 
-        $data = $query->orderByDesc('tanggal_pengajuan')->get();
+        if ($request->string('status')->toString() === 'Approved') {
+            $latestVerifiedSisa = Angsuran::query()
+                ->select('sisa_pinjaman')
+                ->whereColumn('angsurans.id_pinjaman', 'pinjamans.id_pinjaman')
+                ->where('status', 'Verified')
+                ->orderByDesc('id_angsuran')
+                ->limit(1);
+
+            $query->addSelect([
+                'sisa_pinjaman' => $latestVerifiedSisa,
+                'verified_installments_count' => Angsuran::query()
+                    ->selectRaw('COUNT(*)')
+                    ->whereColumn('angsurans.id_pinjaman', 'pinjamans.id_pinjaman')
+                    ->where('status', 'Verified'),
+                'pending_installments_count' => Angsuran::query()
+                    ->selectRaw('COUNT(*)')
+                    ->whereColumn('angsurans.id_pinjaman', 'pinjamans.id_pinjaman')
+                    ->where('status', 'Pending'),
+            ]);
+        }
+
+        $data = $request->boolean('paginate', true)
+            ? $query->orderByDesc('tanggal_pengajuan')->paginate($perPage)
+            : $query->orderByDesc('tanggal_pengajuan')->get();
 
         return $this->successResponse(
             'Daftar pinjaman berhasil diambil.',
