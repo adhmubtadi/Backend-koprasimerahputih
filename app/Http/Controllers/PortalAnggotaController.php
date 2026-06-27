@@ -36,7 +36,10 @@ class PortalAnggotaController extends Controller
             );
         }
 
-        $anggota->load(['cabang', 'account']);
+        $anggota->load([
+            'cabang:id_cabang,nama_cabang,lokasi',
+            'account:id_account,username,role',
+        ]);
 
         $simpanan = Simpanan::where('id_anggota', $anggota->id_anggota)
             ->where('status', 'Verified')
@@ -44,20 +47,35 @@ class PortalAnggotaController extends Controller
             ->groupBy('jenis_simpanan')
             ->get();
 
-        $totalSimpanan = (float) Simpanan::where('id_anggota', $anggota->id_anggota)
-            ->where('status', 'Verified')
-            ->sum('jumlah');
+        $totalSimpanan = (float) $simpanan->sum('total');
 
         $pinjamans = Pinjaman::where('id_anggota', $anggota->id_anggota)
+            ->select([
+                'id_pinjaman',
+                'id_anggota',
+                'id_pengurus_acc',
+                'jumlah_pinjaman',
+                'biaya_operasional',
+                'tenor',
+                'tanggal_pengajuan',
+                'status',
+            ])
             ->orderByDesc('tanggal_pengajuan')
             ->get();
 
-        $pinjamanAktif = $pinjamans->where('status', 'Approved')->map(function ($p) {
-            $lastVerified = Angsuran::where('id_pinjaman', $p->id_pinjaman)
-                ->where('status', 'Verified')
-                ->orderByDesc('id_angsuran')
-                ->first();
+        $latestVerifiedAngsurans = Angsuran::whereIn(
+            'id_pinjaman',
+            $pinjamans->where('status', 'Approved')->pluck('id_pinjaman')
+        )
+            ->where('status', 'Verified')
+            ->select(['id_angsuran', 'id_pinjaman', 'sisa_pinjaman'])
+            ->orderByDesc('id_angsuran')
+            ->get()
+            ->unique('id_pinjaman')
+            ->keyBy('id_pinjaman');
 
+        $pinjamanAktif = $pinjamans->where('status', 'Approved')->map(function ($p) use ($latestVerifiedAngsurans) {
+            $lastVerified = $latestVerifiedAngsurans->get($p->id_pinjaman);
             $sisa = $lastVerified ? (float) $lastVerified->sisa_pinjaman : (float) $p->jumlah_pinjaman;
 
             return [
@@ -70,8 +88,12 @@ class PortalAnggotaController extends Controller
             ];
         })->values();
 
-        $transaksi = TransaksiPos::with(['kasir.cabang', 'detailTransaksi.produk'])
+        $transaksi = TransaksiPos::with([
+            'detailTransaksi:id_detail,id_transaksi,id_produk,jumlah,harga_satuan',
+            'detailTransaksi.produk:id_produk,nama_produk',
+        ])
             ->where('id_anggota', $anggota->id_anggota)
+            ->select(['id_transaksi', 'id_kasir', 'id_anggota', 'tanggal_jam', 'total_bayar', 'ppn'])
             ->orderByDesc('tanggal_jam')
             ->take(20)
             ->get();
