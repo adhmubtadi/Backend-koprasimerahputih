@@ -8,14 +8,14 @@ class SupplierService
 {
     public function getAllSuppliers(?string $search = null)
     {
-        $query = Supplier::query();
+        $query = Supplier::query()->select(['id_supplier', 'nama_supplier', 'alamat']);
 
         if ($search) {
             $query->where('nama_supplier', 'like', "%{$search}%")
                   ->orWhere('alamat', 'like', "%{$search}%");
         }
 
-        return $query->get();
+        return $query->orderBy('nama_supplier')->limit(200)->get();
     }
 
     public function createSupplier(array $data): Supplier

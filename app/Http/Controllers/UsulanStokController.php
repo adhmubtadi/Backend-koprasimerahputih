@@ -21,12 +21,39 @@ class UsulanStokController extends Controller
     public function index(Request $request): JsonResponse
     {
         $this->syncPengiriman();
-        $query = UsulanStok::with(['produk', 'gudang', 'supplier', 'cabang', 'pengurusAcc']);
+        $limit = min(max((int) $request->integer('limit', 100), 1), 500);
+        $query = UsulanStok::query()
+            ->select([
+                'id_usulan',
+                'kode_usulan',
+                'id_produk',
+                'id_gudang',
+                'id_supplier',
+                'id_cabang',
+                'id_pengurus_acc',
+                'jumlah',
+                'harga_beli',
+                'harga_jual',
+                'status',
+                'status_pengiriman',
+                'tanggal_usulan',
+                'tanggal_approved',
+                'tanggal_diterima',
+                'alasan_penolakan',
+            ])
+            ->with([
+                'produk:id_produk,nama_produk',
+                'gudang:id_gudang,nama_petugas,id_cabang',
+                'supplier:id_supplier,nama_supplier',
+                'cabang:id_cabang,nama_cabang',
+                'pengurusAcc:id_pengurus,nama_pengurus',
+            ]);
         if ($request->filled('status')) $query->where('status', $request->string('status'));
+        if ($request->filled('exclude_status')) $query->where('status', '!=', $request->string('exclude_status'));
         $scope = $this->resolveCabangScope($request);
         if ($scope !== null) $query->where('id_cabang', $scope);
 
-        $items = $query->orderByDesc('id_usulan')->get();
+        $items = $query->orderByDesc('id_usulan')->limit($limit)->get();
         $groups = $items->groupBy(fn (UsulanStok $item) => $item->kode_usulan ?: 'LEGACY-'.$item->id_usulan)
             ->map(function ($rows, $kode) {
                 $first = $rows->first();

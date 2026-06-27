@@ -18,7 +18,10 @@ class ProdukController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Produk::with(['supplier', 'cabang']);
+        $limit = min(max((int) $request->integer('limit', 100), 1), 500);
+        $query = Produk::query()
+            ->select(['id_produk', 'id_cabang', 'id_supplier', 'nama_produk', 'harga_beli', 'harga_jual', 'stok'])
+            ->with(['supplier:id_supplier,nama_supplier', 'cabang:id_cabang,nama_cabang']);
         $cabangScope = $this->resolveCabangScope($request);
 
         if ($cabangScope !== null) {
@@ -36,7 +39,7 @@ class ProdukController extends Controller
         }
 
         $threshold = (int) config('koperasi.stok_warning_threshold', 100);
-        $produk = $query->orderBy('nama_produk', 'asc')->get();
+        $produk = $query->orderBy('nama_produk', 'asc')->limit($limit)->get();
 
         $isKasir = $request->user()?->role === 'Kasir';
 
