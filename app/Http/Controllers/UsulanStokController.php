@@ -223,9 +223,18 @@ class UsulanStokController extends Controller
             return;
         }
 
-        if ($user->role === 'Admin' || $user->role === 'Pengurus') {
+        if ($user->role === 'Admin') {
             if ($request->filled('id_cabang')) {
                 $query->where('id_cabang', (int) $request->query('id_cabang'));
+            }
+
+            return;
+        }
+
+        if ($user->role === 'Pengurus') {
+            $scope = $this->resolveCabangScope($request);
+            if ($scope !== null) {
+                $query->where('id_cabang', $scope);
             }
 
             return;
@@ -253,8 +262,13 @@ class UsulanStokController extends Controller
             return false;
         }
 
-        if ($user->role === 'Admin' || $user->role === 'Pengurus') {
+        if ($user->role === 'Admin') {
             return true;
+        }
+
+        if ($user->role === 'Pengurus') {
+            $scope = $this->resolveCabangScope($request);
+            return $scope !== null && (int) $usulan->id_cabang === $scope;
         }
 
         if ($user->role === 'Gudang') {

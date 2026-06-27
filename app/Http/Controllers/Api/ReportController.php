@@ -44,7 +44,7 @@ class ReportController extends Controller
             $year = (int) ($request->query('year') ?? now()->year);
             $date = $request->query('date');
             $idKasir = $request->query('id_kasir');
-            $cabangScope = $this->resolveCabangScope($request);
+            $cabangScope = $this->resolveReportCabangScope($request);
             $limit = $this->reportLimit($request);
 
             $query = TransaksiPos::query()
@@ -634,7 +634,7 @@ class ReportController extends Controller
             }
             $limit = $this->reportLimit($request, 200, 1000);
 
-            $cabangScope = $this->resolveInventoryCabangScope($request);
+            $cabangScope = $this->resolveReportCabangScope($request);
             $requestedCabang = $request->filled('id_cabang') ? (int) $request->query('id_cabang') : null;
             $effectiveCabang = $cabangScope ?? $requestedCabang;
             $stockQuery = BranchProductStock::query()
@@ -683,11 +683,11 @@ class ReportController extends Controller
         }
     }
 
-    private function resolveInventoryCabangScope(Request $request): ?int
+    private function resolveReportCabangScope(Request $request): ?int
     {
         $role = $request->user()?->role;
 
-        if ($role === 'Admin' || $role === 'Pengurus') {
+        if ($role === 'Admin') {
             return $request->filled('id_cabang') ? (int) $request->query('id_cabang') : null;
         }
 

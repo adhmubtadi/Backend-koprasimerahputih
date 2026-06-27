@@ -15,6 +15,7 @@ use App\Models\Supplier;
 use App\Models\Simpanan;
 use App\Models\Pinjaman;
 use App\Models\UsulanStok;
+use App\Models\BranchProductStock;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 
@@ -82,11 +83,42 @@ class DatabaseSeeder extends Seeder
         $pengurus = Pengurus::firstOrCreate(
             ['id_account' => $accPengurus->id_account],
             [
-                'nama_pengurus' => 'Dewi Pengurus',
+                'nama_pengurus' => 'Dewi Lestari',
                 'nip' => 'PG-001',
                 'id_cabang' => $cabang->id_cabang,
             ]
         );
+
+        $pengurusNames = [
+            'Dewi Lestari',
+            'Ahmad Fauzan',
+            'Rina Marlina',
+            'Satria Nugraha',
+            'Maya Kartika',
+            'Fajar Ramadhan',
+            'Nadia Putri',
+            'Yusuf Maulana',
+            'Intan Permata',
+            'Rizky Pratama',
+        ];
+        $pengurusIndex = 1;
+        foreach (Cabang::where('id_cabang', '!=', $cabang->id_cabang)->orderBy('id_cabang')->get() as $cb) {
+            $slug = strtolower(str_replace(' ', '_', $cb->nama_cabang));
+            $accCabangPengurus = Account::firstOrCreate(
+                ['username' => 'pengurus_'.$slug],
+                ['password' => Hash::make('password123'), 'role' => 'Pengurus']
+            );
+
+            Pengurus::firstOrCreate(
+                ['id_account' => $accCabangPengurus->id_account],
+                [
+                    'nama_pengurus' => $pengurusNames[$pengurusIndex % count($pengurusNames)],
+                    'nip' => 'PG-'.str_pad((string) ($pengurusIndex + 1), 3, '0', STR_PAD_LEFT),
+                    'id_cabang' => $cb->id_cabang,
+                ]
+            );
+            $pengurusIndex++;
+        }
 
         $accGudang = Account::firstOrCreate(
             ['username' => 'gudang_koperasi'],
@@ -102,6 +134,21 @@ class DatabaseSeeder extends Seeder
 
         // 2 kasir per cabang (sesuai dokumen requirement)
         $kasirPerCabang = (int) config('koperasi.kasir_per_cabang', 2);
+        $kasirNames = [
+            'Andi Saputra',
+            'Siti Amelia',
+            'Budi Santoso',
+            'Nabila Azzahra',
+            'Dimas Prakoso',
+            'Putri Maharani',
+            'Rizal Hakim',
+            'Laras Wulandari',
+            'Yoga Firmansyah',
+            'Citra Anjani',
+            'Teguh Wicaksono',
+            'Aulia Rahma',
+        ];
+        $kasirIndex = 0;
         foreach (Cabang::all() as $cb) {
             for ($k = 1; $k <= $kasirPerCabang; $k++) {
                 $slug = strtolower(str_replace(' ', '_', $cb->nama_cabang));
@@ -115,10 +162,11 @@ class DatabaseSeeder extends Seeder
                 Kasir::firstOrCreate(
                     ['id_account' => $accKasir->id_account],
                     [
-                        'nama_kasir' => 'Kasir '.$cb->nama_cabang.' #'.$k,
+                        'nama_kasir' => $kasirNames[$kasirIndex % count($kasirNames)],
                         'id_cabang' => $cb->id_cabang,
                     ]
                 );
+                $kasirIndex++;
             }
         }
 
@@ -164,6 +212,20 @@ class DatabaseSeeder extends Seeder
                 'stok' => 50,
             ]
         );
+
+        foreach (Cabang::all() as $cb) {
+            foreach ([$produkBeras, $produkMinyak] as $produk) {
+                BranchProductStock::updateOrCreate(
+                    [
+                        'id_cabang' => $cb->id_cabang,
+                        'id_produk' => $produk->id_produk,
+                    ],
+                    [
+                        'stok' => (int) $cb->id_cabang === (int) $produk->id_cabang ? (int) $produk->stok : 0,
+                    ]
+                );
+            }
+        }
 
         Simpanan::firstOrCreate([
             'id_anggota' => $anggota->id_anggota,

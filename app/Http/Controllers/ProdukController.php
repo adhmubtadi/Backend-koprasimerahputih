@@ -51,7 +51,9 @@ class ProdukController extends Controller
         $selectedBranchId = $cabangScope ?: ($request->filled('id_cabang') ? (int) $request->query('id_cabang') : null);
 
         $produk->transform(function ($item) use ($threshold, $isKasir, $selectedBranchId) {
-            $stocks = $item->branchStocks;
+            $stocks = $selectedBranchId
+                ? $item->branchStocks->where('id_cabang', $selectedBranchId)->values()
+                : $item->branchStocks;
             $branchStock = $selectedBranchId
                 ? $stocks->firstWhere('id_cabang', $selectedBranchId)
                 : null;

@@ -22,7 +22,7 @@ class DashboardController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
-            $cabangScope = $this->resolveInventoryCabangScope($request);
+            $cabangScope = $this->resolveCabangScope($request);
             $threshold = (int) config('koperasi.stok_warning_threshold', 100);
 
             $anggotaQuery = Anggota::query();
@@ -130,14 +130,4 @@ class DashboardController extends Controller
         }
     }
 
-    private function resolveInventoryCabangScope(Request $request): ?int
-    {
-        $role = $request->user()?->role;
-
-        if ($role === 'Admin' || $role === 'Pengurus') {
-            return $request->filled('id_cabang') ? (int) $request->query('id_cabang') : null;
-        }
-
-        return $this->resolveCabangScope($request);
-    }
 }
