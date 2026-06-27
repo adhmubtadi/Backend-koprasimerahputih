@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\SavingUpdated;
 use App\Http\Resources\SimpananResource;
 use App\Models\Anggota;
 use App\Models\Simpanan;
@@ -205,6 +206,8 @@ class SimpananController extends Controller
             app(JurnalService::class)->catatSimpananMasuk($simpanan->load('anggota'));
         }
 
+        broadcast(new SavingUpdated($isMember ? 'store_pending' : 'store_verified', $simpanan->load('anggota')))->toOthers();
+
         return $this->successResponse(
             $isMember ? 'Bukti setoran berhasil diunggah, mohon tunggu verifikasi.' : 'Simpanan berhasil dicatat.',
             $simpanan,
@@ -222,6 +225,8 @@ class SimpananController extends Controller
         $simpanan->update(['status' => 'Verified']);
         app(JurnalService::class)->catatSimpananMasuk($simpanan->fresh('anggota'));
 
+        broadcast(new SavingUpdated('verified', $simpanan->fresh('anggota')))->toOthers();
+
         return $this->successResponse('Setoran simpanan berhasil diverifikasi.', $simpanan->fresh('anggota'));
     }
 
@@ -233,6 +238,9 @@ class SimpananController extends Controller
         }
 
         $simpanan->update(['status' => 'Rejected']);
+
+        broadcast(new SavingUpdated('rejected', $simpanan->fresh('anggota')))->toOthers();
+
         return $this->successResponse('Setoran simpanan berhasil ditolak.', $simpanan->fresh('anggota'));
     }
 
