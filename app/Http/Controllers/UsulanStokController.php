@@ -115,11 +115,13 @@ class UsulanStokController extends Controller
             ]));
         });
 
-        $this->broadcastInventoryUpdate('stock-proposal-created', $targetCabangId, $kode);
         $createdRows = UsulanStok::query()
             ->where('kode_usulan', $kode)
-            ->with(['produk', 'supplier', 'cabang'])
+            ->with(['produk:id_produk,nama_produk', 'supplier:id_supplier,nama_supplier', 'cabang:id_cabang,nama_cabang', 'gudang:id_gudang,nama_petugas,id_cabang'])
             ->get();
+        $this->broadcastInventoryUpdate('stock-proposal-created', $targetCabangId, $kode, [
+            'usulan' => $this->formatUsulanGroup($createdRows),
+        ]);
 
         return $this->successResponse('Usulan pembelian berhasil diajukan.', $createdRows, 201);
     }
@@ -170,9 +172,12 @@ class UsulanStokController extends Controller
                 $row->save();
             }
 
-            $this->broadcastInventoryUpdate('delivery-completed', (int) $first->id_cabang, $first->kode_usulan);
+            $loadedRows = $rows->load(['produk:id_produk,nama_produk', 'supplier:id_supplier,nama_supplier', 'cabang:id_cabang,nama_cabang', 'gudang:id_gudang,nama_petugas,id_cabang']);
+            $this->broadcastInventoryUpdate('delivery-completed', (int) $first->id_cabang, $first->kode_usulan, [
+                'usulan' => $this->formatUsulanGroup($loadedRows),
+            ]);
 
-            return $this->successResponse('Pengiriman selesai dan stok cabang berhasil ditambahkan.', $rows->load(['produk', 'supplier', 'cabang']));
+            return $this->successResponse('Pengiriman selesai dan stok cabang berhasil ditambahkan.', $loadedRows);
         });
     }
 
@@ -196,16 +201,19 @@ class UsulanStokController extends Controller
                 $row->save();
             }
 
-            $this->broadcastInventoryUpdate($approve ? 'stock-proposal-approved' : 'stock-proposal-rejected', (int) $first->id_cabang, $first->kode_usulan);
+            $loadedRows = $rows->load(['produk:id_produk,nama_produk', 'supplier:id_supplier,nama_supplier', 'cabang:id_cabang,nama_cabang', 'gudang:id_gudang,nama_petugas,id_cabang']);
+            $this->broadcastInventoryUpdate($approve ? 'stock-proposal-approved' : 'stock-proposal-rejected', (int) $first->id_cabang, $first->kode_usulan, [
+                'usulan' => $this->formatUsulanGroup($loadedRows),
+            ]);
 
-            return $this->successResponse($approve ? 'Usulan disetujui dan pesanan masuk proses pengiriman.' : 'Usulan pembelian ditolak.', $rows->load(['produk', 'supplier', 'cabang']));
+            return $this->successResponse($approve ? 'Usulan disetujui dan pesanan masuk proses pengiriman.' : 'Usulan pembelian ditolak.', $loadedRows);
         });
     }
 
-    private function broadcastInventoryUpdate(string $action, ?int $idCabang, ?string $kodeUsulan): void
+    private function broadcastInventoryUpdate(string $action, ?int $idCabang, ?string $kodeUsulan, array $payload = []): void
     {
         try {
-            broadcast(new InventoryUpdated($action, $idCabang, $kodeUsulan));
+            broadcast(new InventoryUpdated($action, $idCabang, $kodeUsulan, $payload));
         } catch (\Throwable $e) {
             Log::warning('Inventory websocket broadcast failed.', [
                 'action' => $action,
@@ -214,6 +222,28 @@ class UsulanStokController extends Controller
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    private function formatUsulanGroup($rows): array
+    {
+        $first = $rows->first();
+
+        return [
+            'id_usulan' => $first->id_usulan,
+            'kode_usulan' => $first->kode_usulan ?: 'LEGACY-'.$first->id_usulan,
+            'id_cabang' => $first->id_cabang,
+            'cabang' => $first->cabang,
+            'gudang' => $first->gudang,
+            'pengurus_acc' => $first->pengurusAcc,
+            'status' => $first->status,
+            'status_pengiriman' => $first->status_pengiriman,
+            'tanggal_usulan' => $first->tanggal_usulan,
+            'tanggal_approved' => $first->tanggal_approved,
+            'tanggal_diterima' => $first->tanggal_diterima,
+            'alasan_penolakan' => $first->alasan_penolakan,
+            'total_estimasi' => (float) $rows->sum(fn ($row) => $row->jumlah * $row->harga_beli),
+            'items' => $rows->values(),
+        ];
     }
 
     private function applyUsulanVisibility($query, Request $request): void

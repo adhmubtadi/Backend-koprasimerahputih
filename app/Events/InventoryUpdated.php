@@ -15,6 +15,7 @@ class InventoryUpdated implements ShouldBroadcastNow
         public string $action,
         public ?int $idCabang = null,
         public ?string $kodeUsulan = null,
+        public array $payload = [],
     ) {}
 
     public function broadcastOn(): Channel
@@ -33,6 +34,7 @@ class InventoryUpdated implements ShouldBroadcastNow
             'action' => $this->action,
             'id_cabang' => $this->idCabang,
             'kode_usulan' => $this->kodeUsulan,
+            'payload' => $this->payload,
             'sent_at' => now()->toISOString(),
         ];
     }
